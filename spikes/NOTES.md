@@ -35,6 +35,13 @@ before fast** (opposite of Auto Racing):
 
 ```
 entry 0: $1A71 interval $8001   music, stopped/one-shot -> keep verbatim as entry 0
+```
+
+The pass is 3 frames — **measured** on this cart at M1 (2026-08-16):
+PORTING.md §2.1 recipe, `m 100 8` -> `$0102 = 3, $0103 = 3`. 20 passes/s.
+M1 gate: `make verify-org` byte-identical (as1600 0 errors, cmp exact).
+
+```
 entry 1: $56EF interval $000F   every 15   = 1.33 Hz, 751 ms  (game clock?)
 entry 2: $5034 interval $0001   every pass = 20 Hz, 50 ms tick
 ```
