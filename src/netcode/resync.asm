@@ -399,13 +399,12 @@ RS_REBASE:
 ; bonus: the image is now always serialized at the same fixed point in the
 ; pass, after the tick and its virtual dispatch have finished.
 ; ---------------------------------------------------------------------------
-; Auto Racing has no ball-dead: the race is continuous and the handler table
-; is static, so there is no phase to read off GAME_TBL.  Menu phases (bit 0
-; of AR_PHASE set, incl. $03 = race screen holding) are quiescent; during
-; live racing (phase 0) the honest options are a lap/crash boundary or
-; accepting the jump.  Until M8 pins a crash/lap marker the cap is kept
-; short: a small visible jump beats seconds of divergence at 20 Hz.
-RS_PEND_MAX     EQU     40              ; game ticks (~2 s at 20 Hz)
+; Football has genuine dead-ball moments: phases 0-4 (reset / post-tackle /
+; play select / line up / huts), 9 (post-score) and $A (end of game) are all
+; ball-dead; the ball is live only in phases 5-8 and $B (run / pass / kick /
+; return).  A play rarely lasts more than a few seconds, so the cap fires
+; only if the runner stays alive unusually long.
+RS_PEND_MAX     EQU     60              ; game ticks (~3 s at 20 Hz)
 
 RS_PENDING:
         PSHR    R5
@@ -421,10 +420,16 @@ RS_PENDING:
         MVI     RS_PTMO, R0
         INCR    R0
         MVO     R0,     RS_PTMO
-        ; quiescent? (menu / race-screen-hold phases have bit 0 set)
-        MVI     AR_PHASE, R0
-        ANDI    #1,     R0
-        BNEQ    @@rp_go
+        ; quiescent?  dead ball = FB_PHASE <= 4, or 9/$A (post-score / end
+        ; of game); live = 5-8 (run/pass/kick) and $B (kick return)
+        MVI     FB_PHASE, R0
+        CMPI    #5,     R0
+        BLT     @@rp_go
+        CMPI    #9,     R0
+        BLT     @@rp_tmo                ; 5-8: ball live
+        CMPI    #$0B,   R0
+        BLT     @@rp_go                 ; 9/$A: dead
+        B       @@rp_tmo                ; $B: kick return, live
 @@rp_tmo:
         MVI     RS_PTMO, R0
         CMPI    #RS_PEND_MAX, R0

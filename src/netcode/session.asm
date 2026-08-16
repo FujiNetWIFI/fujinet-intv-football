@@ -242,10 +242,11 @@ SES_MAIN:
         ; The server's role is a seat at the game's controller ports, and the
         ; 1978 manual (p.4) says what those seats mean: the RIGHT controller is
         ; the home team, so role 0 (host, the game's LEFT controller) is the
-        ; There is no home/visitors here: each player picks their own car
-        ; at the game's own car-select screen, in seat order (player 1 =
-        ; left seat picks first; the game refuses matching cars).  Both
-        ; consoles feed their own player from their own left controller.
+        ; Seats (spikes/NOTES.md M7): host = left seat = HOME (defense at
+        ; boot), guest = right seat = VISITOR (first possession -- picks
+        ; the play, snaps, runs).  Scoreboard row 0/1: Home = left column
+        ; ($017D), Visitor = right ($017C).  Both consoles feed their own
+        ; player from their own left controller.
         JSR     R5,     UI_CLS
         CLRR    R0
         MVII    #STR_TITLE, R1
@@ -812,7 +813,7 @@ SES_FLEN:
         DECLE   $0000                   ; $0E --
         DECLE   $0000                   ; $0F --
 
-STR_TITLE:      STRING  "AUTO RACING NETPLAY"
+STR_TITLE:      STRING  "NFL FOOTBALL NETPLAY"
                 DECLE   0
 STR_NOFN:       STRING  "NO FUJINET - LOCAL GAME"
                 DECLE   0
@@ -830,15 +831,15 @@ STR_BUSY:       STRING  "ALREADY IN A GAME   "
                 DECLE   0
 STR_VS:         STRING  "VS "
                 DECLE   0
-STR_YOUP1:      STRING  "YOU ARE PLAYER 1"
+STR_YOUP1:      STRING  "YOU ARE HOME"
                 DECLE   0
-STR_YOUP2:      STRING  "YOU ARE PLAYER 2"
+STR_YOUP2:      STRING  "YOU ARE VISITOR"
                 DECLE   0
-STR_OPPP1:      STRING  "THEY ARE PLAYER 1"
+STR_OPPP1:      STRING  "THEY ARE HOME"
                 DECLE   0
-STR_OPPP2:      STRING  "THEY ARE PLAYER 2"
+STR_OPPP2:      STRING  "THEY ARE VISITOR"
                 DECLE   0
-STR_PICKS:      STRING  "P1 PICKS A CAR FIRST"
+STR_PICKS:      STRING  "VISITOR BALL FIRST"
                 DECLE   0
 STR_USELEFT:    STRING  "USE LEFT CONTROLLER"
                 DECLE   0

@@ -161,8 +161,8 @@ check(last.get(0x8162) == 1 and opp == "CHARLIE",
 t_you, c_you = row_text_and_colour(last, 5)
 t_them, c_them = row_text_and_colour(last, 6)
 role = last.get(0x8160)
-me = "PLAYER 2" if role else "PLAYER 1"
-them = "PLAYER 1" if role else "PLAYER 2"
+me = "VISITOR" if role else "HOME"
+them = "HOME" if role else "VISITOR"
 check(me in t_you and c_you == {6},
       f"role {role}: 'YOU ARE {me}' in yellow: {t_you!r} {sorted(c_you)}")
 check(them in t_them and c_them == {7},
@@ -185,7 +185,7 @@ HOLD=$(sed -n 's/^0x\([0-9A-F]*\) *SES_HOLD:.*/\1/p' "$BUILD/football_net.lst" |
 [ -n "$HOLD" ] || { echo "run_lobby.sh: cannot find SES_HOLD in the listing"; exit 1; }
 echo "matched-screen hold: \$$HOLD"
 # Break where the matched screen is fully painted, dump it, then let the game
-# start and dump again -- the game's own SELECT COURSE screen proves the
+# start and dump again -- the game's own scoreboard screen proves the
 # handover reached stock code.
 printf 'b 14D5\nr 10000000\ng 7 14D7\nn 14D5\nb %s\nr 10000000\nn %s\nm 200 F0\nm 8160 4\nm 8170 9\nr 2000000\nm 200 F0\nq\n' \
     "$HOLD" "$HOLD" > "$RIG/lb2.scr"
@@ -248,18 +248,18 @@ t_them, c_them, _ = row(mem, 6)
 print(f"  NET_ROLE={role} NET_ACTIVE={mem.get(0x8162)} opp={opp!r}")
 check(role == 0 and mem.get(0x8162) == 1 and opp == "DELTA",
       f"console is the host (role={role} opp={opp!r})")
-check("PLAYER 1" in t_you and c_you == {6},
-      f"host is told it is player 1, in yellow: {t_you!r} {sorted(c_you)}")
-check("PLAYER 2" in t_them and c_them == {7},
-      f"peer is named player 2, in white: {t_them!r} {sorted(c_them)}")
+check("HOME" in t_you and c_you == {6},
+      f"host is told it is HOME, in yellow: {t_you!r} {sorted(c_you)}")
+check("VISITOR" in t_them and c_them == {7},
+      f"peer is named VISITOR, in white: {t_them!r} {sorted(c_them)}")
 
 # Cross-check against the game itself: after the handover the stock game
-# must be running -- its own SELECT COURSE screen is the proof.
+# must be running -- its own scoreboard ("Home ... Visitor") is the proof.
 game = snaps[-1]
 rows = [row(game, r)[0] for r in range(12)]
 print(f"--- game screen after handover: {[r for r in rows if r]!r}")
-check(any("SELECT COURSE" in r for r in rows),
-      "game reached its own SELECT COURSE screen after the handover")
+check(any(("Home" in r and "Visitor" in r) or "1st and" in r for r in rows),
+      "game reached its own scoreboard screen after the handover")
 print("ROLE0 PASS" if ok else "ROLE0 FAIL")
 sys.exit(0 if ok else 1)
 EOF

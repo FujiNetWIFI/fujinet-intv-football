@@ -348,6 +348,26 @@ and dance/tick-boundary coherence under stalls.
 Record-and-replay (run-rec) needs live interactive play — deferred to the
 hardware pass, as in the AR port.
 
+## M6/M7 results (2026-08-16)
+
+- **M6 transport PASS**: 100/100 echo rounds, E_STAGE $AA, avg 36.4 ms per
+  3-transaction round through the emulated bridge (probe on 9103).
+- **Seats/scores pinned in the dis** ($548F paint routine): $017D paints
+  under "Home" (row 1 LEFT column), $017C under "Visitor" (RIGHT).
+  Touchdown path ($59B0, inline "TOUCHDOWN !") adds to $017C + G_016B; at
+  boot G_016B=0 -> the RIGHT pad is VISITOR and has first possession.
+  Netplay: host (role 0) = left seat = HOME (defense first), guest =
+  VISITOR (picks first play).  Session strings accordingly.
+- **Clock-hold is NOT a dead-ball signal** (the clock keeps running between
+  downs after an in-bounds run, phase 2 with G_0181 bit0 clear observed).
+  The resync gate uses FB_PHASE instead: dead = <=4, 9, $A; live = 5-8, $B.
+- **M7 RIG PASS** (first run): auto-match, 2,970 lockstep ticks, 44 CRC
+  pairs, 0 mismatches, DIAG all zero, no drops.  Shared demo script ran the
+  play cross-console (host plays the defense column, guest the offense).
+- **M7 LOBBY PASS** (12/12 checks incl. both roles and the handover to the
+  stock scoreboard screen; handover marker = "Home ... Visitor" row or the
+  "1st and" down line — the score row paints a beat later than row 11).
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball

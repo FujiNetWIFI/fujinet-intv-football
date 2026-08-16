@@ -78,9 +78,10 @@ LS_PASS:
         ADDR    R1,     R2              ; R2 = T+d
     IF NET_FUZZ <> 0
         ; Rig builds: the demo script first -- the host plays the left
-        ; column, the guest the right, so the two consoles complete the
-        ; menus together (course 1, cars 1/2, both enters) -- then
-        ; pseudo-random input seeded per console from boot entropy.
+        ; column (defense at boot), the guest the right (offense picks a
+        ; play, snaps, runs), so the two consoles complete one play
+        ; together -- then pseudo-random input seeded per console from
+        ; boot entropy.
         ; SCR_STEP clobbers R1/R2 -- and R2 here is T+d, the ring slot AND
         ; the tick the INPUT frame carries.  Losing it sent every fuzz-era
         ; input as "tick 0" (dropped as stale by the peer), which is how
@@ -235,11 +236,33 @@ LS_PASS:
         EIS
 @@ls_nf:
         ; ---- raw-latch shadows: live pass-through (spikes/NOTES.md M2) ----
-        ; Input reaches game state only via LS_VDISPATCH, which maps sides
-        ; to LOC/RMT rings by NET_ROLE itself.  The latch cells just keep
-        ; the real scan behaving stock so the captured $011F stream has
-        ; stock fresh/held flavours.
+        ; The latch cells keep the real scan behaving stock so the captured
+        ; $011F stream has stock fresh/held flavours.  (UPDATE_SHADOW also
+        ; pass-through-feeds the polled pair; the role feed below overwrites
+        ; it with the lockstep rings' values for this tick.)
         JSR     R5,     UPDATE_SHADOW
+        ; ---- feed the polled shadow pair by role (the hybrid model) ------
+        ; Football POLLS the decoded pair (computed-index read at $5636,
+        ; patched to SHADOW_CTRL/_R) as well as dispatching.  Feed it from
+        ; the same rings LS_VDISPATCH replays, at tick T: host = left seat
+        ; (local -> SHADOW_CTRL), guest = right seat (swapped).  Register
+        ; audit (PORTING.md §5.6): nothing is live in R0-R3 here -- the
+        ; tick block below reloads R0/R1 from memory.
+        MVI     TICK_LO, R3
+        MOVR    R3,     R2
+        ADDI    #LOC_RING, R2
+        MVI@    R2,     R1              ; local delayed input
+        ADDI    #RMT_RING-LOC_RING, R2
+        MVI@    R2,     R2              ; remote input
+        MVI     NET_ROLE, R0
+        TSTR    R0
+        BNEQ    @@ls_guest
+        MVO     R1,     SHADOW_CTRL     ; host: local=left, remote=right
+        MVO     R2,     SHADOW_CTRL_R
+        B       @@ls_tick
+@@ls_guest:
+        MVO     R2,     SHADOW_CTRL     ; guest: remote=left, local=right
+        MVO     R1,     SHADOW_CTRL_R
 @@ls_tick:
         ; Handler-table swap, non-destructive: the game (and EXEC) install
         ; new tables from tick code AND from dispatched handlers, so adopt
@@ -254,8 +277,8 @@ LS_PASS:
         BEQ     @@ls_no_tbl
         MVO     R1,     $35D
 @@ls_no_tbl:
-        JSR     R5,     AR_TICK_FAST
-        JSR     R5,     AR_SLOW_STEP    ; virtualized entry 2 (/15), sim state
+        JSR     R5,     FB_SLOW_STEP    ; virtualized entry 1 (/15), sim state
+        JSR     R5,     FB_TICK_FAST    ; slow BEFORE fast: original table order
         ; virtual dispatch: replay both sides' input events for this tick,
         ; host side first, through the game's real handlers (live $035D)
         CLRR    R0
