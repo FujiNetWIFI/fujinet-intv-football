@@ -280,6 +280,26 @@ shims. Gate `make verify-patch` runs once the M3 hook builds.
   pick lands in $0172; which physical port that is (left vs right) is
   pinned at M5 with the BACKTAB score columns.
 
+## M4 findings (2026-08-16) — interception proof, objective form
+
+Lag build (SPIKE_VIRT, d=20): keypad '8' injected at ticks 100-104.
+- Dispatch surface: the pick cell $0172 flipped at tick ~121 — exactly
+  d=20 ticks after the press (virt-d0 registers it within the hold window).
+- Polled surface: the shadow pair showed the delayed $88 (fresh) at tick
+  ~120 and $C8 (held) at ~124 while the live $011F/$0120 had long returned
+  to idle — SHADOW_FROM_RINGS delivers ring[T], proven.
+- No cell changed during the delay window: no unpatched immediate path.
+
+**Scan-order correction (this cart): the first $1532 scan hit each pass is
+the RIGHT controller ($0120), the second the LEFT ($011F)** — proven by the
+press landing in RMT_RING/SHADOW_CTRL_R. The injection harness pairs the
+first g-force with the right pad accordingly (gen_probe.py fixed).  The
+crossed version went unnoticed in phase 2 because the game latch is
+phase-gated off there (mask $D0 AND 3 = 0) — in latch-live phases
+(5/6/7/8/$B) scan and latch MUST agree per side or every pass looks like
+an edge.  Consequence: the "L-x" probe results above were physically the
+RIGHT pad; with G_016B=0 the right pad owns the $0172 pick path.
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball
