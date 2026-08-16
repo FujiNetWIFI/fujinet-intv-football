@@ -2,9 +2,9 @@
 
 Written in the Baseball port repo (a working two-player netplay port of
 Mattel Baseball (1978), validated on real PiRTO II hardware); updated in this
-repo with the Auto Racing port's lessons (§2.1 caveat, §3 false-positive
-classes, §4 vdispatch/text-variant entries, §5.5 refinements, §5.6,
-§7.8-§7.11). Almost none of it is about any one cart. This document separates
+repo with the Auto Racing and Football ports' lessons (§2.1 caveat, §3
+false-positive classes, §4 vdispatch/text-variant entries, §5.5
+refinements, §5.6, §7.8-§7.13). Almost none of it is about any one cart. This document separates
 the part that transfers — the engine, the server, the test rig, and the
 expensive lessons — from the part that has to be re-derived for each new
 cart, and gives the procedure for re-deriving it.
@@ -463,14 +463,36 @@ ISR (`$1126`) — otherwise a stranded game ISR repaints over your screen
 forever (AR's `DANCE_SETTLE`). Check at recon whether the cart writes
 `$0100/$0101` at all; if it never does, none of this applies.
 
-### 7.11 Kill stale rig processes first
+### 7.11 The debugger's `r N` counts instructions, not cycles
+
+jzIntv's scripted `r N` runs N *instructions* (~4.6 cycles each on
+average). Every cycles-derived count in a test script is therefore ~4.6×
+too long: harmless where the verdict reads whatever state the run reached,
+fatal where a poke must land at a specific moment or dumps must run before
+a `timeout` kill (this is how Football's m4 console 2 died and its fault
+poke landed pre-session). Budget ~200,000 instructions per emulated
+second, and verify any timing-sensitive constant against the cycle counter
+the debugger prints on every register line.
+
+### 7.12 Inject input at the scan's port reads, keyed by PC
+
+Forcing values at a shared decode address and counting on stop *order* is
+fragile (the order proved phase-dependent on Football and burned hours).
+The EXEC scan reads the left port at `$1525` and the right port at `$152C`
+— break after each `MVI` (`b 1527` / `b 152E`) and force R2 with the raw
+**active-low** byte. Distinct PCs per side, unconditional every pass. Keep
+the game's own latch cells consistent by poking the shadow cells at the
+tick stop, and align the script to the actual stop cycle first (the first
+stop after arming the breakpoints is the scan's, not the tick's).
+
+### 7.13 Kill stale rig processes first
 
 A stale fujinet-pc instance silently holds its BOIP port and every later
 emulator launch against it becomes a no-op that *looks* like a netcode hang.
 Every rig script `pkill`s its own instances before starting. Keep it that
 way in new test scripts.
 
-### 7.12 Known, not yet acted on
+### 7.14 Known, not yet acted on
 
 - **Nagle is on for `N:TCP` sockets.** `NetworkProtocolTCP::open_client_connection`
   never calls `setNoDelay(true)` (only the modem devices do), so a
