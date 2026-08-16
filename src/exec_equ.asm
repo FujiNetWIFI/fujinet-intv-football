@@ -11,10 +11,11 @@ EXEC_ISR_DEF    EQU     $1126   ; the EXEC's default game-time ISR (what
                                 ;  $0100/$0101 hold at every tick boundary)
 
 ; EXEC decoded per-controller input bytes, rewritten by the controller scan
-; each main-loop pass.  Auto Racing never polls these -- its input arrives
-; exclusively through the $035D event dispatch (see spikes/NOTES.md, M2) --
-; but the lockstep capture reads them, and the game pre-latches the RAW
-; cells at the top of its tick to force the scan's held path.
+; each main-loop pass.  Football is the Baseball hybrid: it POLLS the
+; decoded cells (one computed-index read at $5636, patched to the shadow
+; pair) AND receives events through the $035D dispatch.  It also
+; pre-latches the RAW cells inside its fast tick (L_5722, gated by the
+; per-phase input mask G_0182 AND 3) to force the scan's held path.
 EXEC_IN_L       EQU     $011F   ; left controller decoded input
 EXEC_IN_R       EQU     $0120   ; right controller decoded input
 EXEC_KP_L       EQU     $0121   ; left controller keypad event cell
@@ -24,12 +25,26 @@ EXEC_RAW_L      EQU     $0123   ; left controller raw (inverted port) value
 EXEC_RAW_R      EQU     $0124
 
 ; Original game entry points we re-dispatch from the master tick.
-AR_TICK_FAST    EQU     $511E   ; game tick (was timer entry 1, interval 1)
-AR_TICK_SLOW    EQU     $51B7   ; race clock (was timer entry 2, interval 15)
-AR_START        EQU     $5037   ; original start-of-game vector target
+; NOTE the original table lists SLOW before FAST -- the dispatcher must
+; preserve that order on passes where both fire.
+FB_TICK_SLOW    EQU     $56EF   ; game clock (was timer entry 1, interval 15)
+FB_TICK_FAST    EQU     $5034   ; game tick  (was timer entry 2, interval 1)
+FB_START        EQU     $5075   ; original start-of-game vector target
 
-; Game phase cell.  $11 = course select, $0D = car select (transitions by
-; XOR), 0 = racing (set at $522E when race init completes).  Menu phases are
-; odd; bit 7*256 suppresses the input handlers.  There is no ball-dead
-; analogue in a continuous race -- the resync gate value is chosen at M8.
-AR_PHASE        EQU     $015D
+; Game phase cell G_016A, values 0-$B, set only via the setter at $5597
+; (inline param), which also loads the per-phase input-enable mask into
+; G_0182 from the table at $559D.  Phase 0 + the EXEC null handler table
+; ($1906) installed = the between-plays/reset state (dead ball candidate --
+; pinned live at M8).  G_016B = controller/possession selector (XOR-swapped),
+; G_0181 bit 0 = game-clock hold, $016F/$0170 = the game clock itself.
+FB_PHASE        EQU     $016A
+
+; The game's VBLANK display dance (same class as Auto Racing's): the fast
+; tick's display routine (L_54E8, called at $5047 EVERY tick) saves the ISR
+; vector to $0163/$0164, installs the game ISR body at $5524, and the
+; mainline spins on the mailbox cell $0169 until the body has shifted the
+; BACKTAB rows, written hscroll $0030 from FB_HSCROLL_CELL and display
+; enable $0020, and restored the saved vector.  All backing cells live in
+; $015D-$01EF (CRC-covered); at tick boundaries the vector is EXEC_ISR_DEF.
+FB_ISR_BODY     EQU     $5524   ; game ISR body ($0101 reads $55 mid-dance)
+FB_HSCROLL_CELL EQU     $0162   ; hscroll backing cell (-> $0030 each dance)

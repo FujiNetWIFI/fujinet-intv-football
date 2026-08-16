@@ -140,6 +140,103 @@ ISR dance check (M2): grep the dis for writes to $0100/$0101. None ->
 football has no VBLANK dance, DANCE_SETTLE gets deleted, no 4-frame menu
 passes expected. Some -> port AR's dance handling wholesale.
 
+## M2 findings (dis1600, 2026-08-16) — every plan-time decode CONFIRMED
+
+**1. Input model = Baseball hybrid, confirmed [dis].** Exactly ONE code
+reference to $011F/$0120 in the whole cart: the `ADDI #$011F,R2` at $5636
+(other grep hits are graphics data tables). The enclosing routine L_561E
+reads `[$011F + (G_016B XOR inline-param)]` — the computed index selects
+EITHER controller, so the shadow pair must be consecutive left,right cells
+and the single operand patch covers both. The read is reached from L_55F7,
+called at $503B **inside the fast tick** — polling happens in sim space.
+Consumption: `ANDI #$C0` — zero (fresh disc event) triggers `.EXEC.629`
+with R4 = an inline param. G_0182 (per-phase input mask) gates it.
+
+**2. $5A12 confirmed benign [dis].** `MVO@` init loop stepping R4 by 5,
+`CMPI #$035D / BLT` exclusive bound — last write ≤ $035C (object table
+init). Nothing in the cart ever READS [$035D]; only the EXEC scan does.
+Adopt/null logic fully safe. The block ($5A03-$5A1D) ends: `MVO R3,G_0160`,
+phase := 0, install EXEC null table — the between-plays reset.
+
+**3. $5041 confirmed misdecode [dis].** dis1600 shows `JSR R5,L_5646` at
+$503E and `JSR R5,L_5722` at $5041 — fast-tick body calls, not a STIC write.
+Real STIC writes: $554A ($0030) and $554C ($0020) only, both INSIDE the
+game ISR body (below).
+
+**4. Football HAS a VBLANK ISR dance** (plan-time recon missed it — the
+writes are labelled `.ISRVEC.0/1` in the dis, not `$0100/$0101`; grep for
+`ISRVEC` too, future ports). Same class as Auto Racing's:
+
+```
+L_54E8 (display routine, called at $5047 from the fast tick EVERY tick):
+  $54F9-$5505  scroll params -> $0166/$0167/$0168
+  $5506-$550C  save current ISR vector ($0100/$0101) -> $0163/$0164
+  $550D-$5513  install game ISR body = R7+$16 = $5524 -> $0100/$0101
+  L_5515       mainline EIS + spin on mailbox G_0169 (SARC bit flags)
+game ISR body $5524:
+  integrates object motion ($031D+ table, scroll accum $0160/$0161),
+  shifts BACKTAB rows ($0200-$02E6 / $0212+ walks, direction by G_0166),
+  $5548: MVI G_0162 -> MVO $0030 (hscroll) -> MVO $0020 (display enable)
+  $5552: restore saved vector from $0163/$0164
+  $5594: MVO R2,G_0169  (completion flags -- the mailbox)
+```
+
+- The dance runs EVERY fast tick -> the hscroll reassert is per-tick, so
+  RS_REBASE needs NO $0030 re-push after a resync (AR conclusion carries).
+- All dance state ($0160-$0169) is inside $015D-$01EF: CRC-covered, and at
+  tick boundaries the vector is EXEC_ISR_DEF and the mailbox is settled.
+- DANCE_SETTLE STAYS (M9): watch $0101 == $55 (FB_ISR_BODY high byte),
+  force-restore EXEC_ISR_DEF on timeout.
+- Passes can be >3 real frames mid-dance; cadence gate measures pass
+  alignment, not wall time (PORTING.md §2.1 caveat applies).
+
+**5. Handler tables: ONE MVO site, VARIABLE tables — the inline-table-after-
+JSR idiom** (Baseball's $5450 pattern). L_55D6: `JSR R4,L_55ED` leaves R4 =
+$55D9 (table base); `ADD@ R5,R4` adds the CALLER's inline offset; MVO at
+$55F4 installs. L_55F0 installs the EXEC null table $1906. Table $55D9
+slots (byte-pair lo,hi per 2 words): +0 null, +2 $5752, +4 $588A, +6 $5874,
++8 $5874, rest null. Callers: $573E (offset 0), $5A3E (offset word $000A),
+null installs at $50CD (end-of-quarter path) and $5A1B (between-plays
+reset). GAME_TBL values observed live at M3 will label the phases; the
+quiescent gate can read GAME_TBL == NULL ($1906) AND FB_PHASE == 0.
+
+**6. Phase machine [dis].** G_016A = phase, 0-$B. Setter L_5597 (inline
+param) also loads G_0182 (input mask) from the per-phase table at $559D.
+Observed inline phase values: 0 ($50FB boot, $5968, $5A17 reset), 1 ($50B8),
+2 ($573A play setup), 3 ($5800), 4 ($5851), 5 ($560C), 6 ($58A8), 7 ($5AF6),
+8 ($5B1F), 9 ($59D9), $A ($512A), and CMPI #$B at $5601. Semantics pinned
+live at M3/M8.
+
+**7. Sound-gate audit: CLEAN — no shims needed.** Cart sound calls:
+`.EXEC.A61` ($1A61 music arm) x5 with inline track words, X_PLAY_CHEER1 x5,
+X_PLAY_SFX1 x4 (inline SFX data), X_PLAY_WHST1 x2, X_PLAY_NOTE x1,
+X_PLAY_MUS2 x1. ZERO cart reads of any sound-state cell ($0149, $014A/B,
+$0159, $0125/6, $0143/4, $035F) and no conditional branch consumes a sound
+return anywhere. Sound is presentation-only, Baseball-style. The AR leak
+class does not apply to this cart.
+
+**8. Scratch census [dis].** Cart's direct cell references: $0116/$0117
+(EXEC playfield boundary limits, written ONCE at FB_START with $B4/$00 —
+constants, read by the EXEC motion engine; no coverage needed), $0123/$0124
+(latch writes), $0160-$0198 (game scratch — inside $015D-$01EF), $031F-$0323
++ $035B/$035C (object table), $035D. **CRC range $015D-$01EF and the AR
+resync image layout copy verbatim.** Image tail: RNG_LO/HI, SLOW_CNT,
+RS_SPARE, GAME_TBL_LO/HI.
+
+**9. Slow tick $56EF = the game clock [dis].** G_0181 bit 0 = clock hold
+(skip). Decrements the 16-bit clock at $016F/$0170 with a $C4 borrow rule;
+at zero: G_0181 := 3, JSR L_5FDF (fanfare), and if FB_PHASE <= 4 runs the
+end-of-quarter sequence L_50CC (null table + $1A61 + cheer). No input, no
+RNG inside. Pure sim state, all CRC-covered. L_5719 (XOR toggle of G_0181
+bit 0) = clock start/stop, called from game logic.
+
+**10. $0121/$0122: zero cart references** — action/keypad classes enter only
+through the dispatch. Wire format unchanged (dec $011F + kp $0121).
+
+**11. Patch map: 13 words**, written to tools/patches.py — header 4, RNG 6,
+polled-input 1 ($5637), raw-latch 2 ($5729/$572E). No timer shims, no sound
+shims. Gate `make verify-patch` runs once the M3 hook builds.
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball
