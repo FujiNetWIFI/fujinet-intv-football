@@ -1,6 +1,6 @@
 #!/bin/sh
 # M4 recovery test: the 2-console rig with a fault injection -- console 2's
-# game scratch cell $0165 is corrupted mid-run via the debugger.  Expected:
+# game scratch cell $017C (the Visitor score) is corrupted mid-run via the debugger.  Expected:
 # CRC mismatch detected, host pushes state, both re-baseline, CRC pairs go
 # back to matching, nobody drops.
 set -e
@@ -31,15 +31,16 @@ SRV=$!
 trap 'kill $FN1 $FN2 $SRV 2>/dev/null || true' EXIT
 sleep 1.5
 
+# The debugger's `r N` counts INSTRUCTIONS (~4.6 cycles each on average,
+# measured), so ~200000 instructions per emulated second.  Overshooting by
+# the old cycles-based factor made console 2 blow past its dumps and die on
+# `timeout` (spikes/NOTES.md, M8).
 printf 'b 14D5\nr 10000000\ng 7 14D7\nn 14D5\nr %d\nm 8100 20\nm 8160 10\nm 80C0 2\nm 8180 10\nm 8090 10\nq\n' \
-    $((RUN_SECS * 900000)) > "$RIG/m4c1.scr"
+    $((RUN_SECS * 200000)) > "$RIG/m4c1.scr"
 # console 2: extra RNG stir for a distinct name/seed, then the fault poke
-# at ~35s ($1E0BFC0), then the remainder of the run.  Do NOT recompute that
-# literal from a seconds value: the debugger's `r` does not parse every form
-# we might print, and an unparsed count runs until `timeout` kills the console
-# before it reaches its dumps.
-printf 'b 14D5\nr 10000000\nn 14D5\nr 49BF0\nb 14D5\nr 10000000\ng 7 14D7\nn 14D5\nr 1E0BFC0\ne 165 55\nr %d\nm 8100 20\nm 8160 10\nm 80C0 2\nm 8180 10\nm 8090 10\nq\n' \
-    $(( (RUN_SECS - 35) * 900000 )) > "$RIG/m4c2.scr"
+# at ~35s (7M instructions), then the remainder of the run.
+printf 'b 14D5\nr 10000000\nn 14D5\nr 49BF0\nb 14D5\nr 10000000\ng 7 14D7\nn 14D5\nr 7000000\ne 17C 5\nr %d\nm 8100 20\nm 8160 10\nm 80C0 2\nm 8180 10\nm 8090 10\nq\n' \
+    $(( (RUN_SECS - 35) * 200000 )) > "$RIG/m4c2.scr"
 
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
     timeout $((RUN_SECS + 200)) "$JZINTV" -d --script="$RIG/m4c1.scr" \

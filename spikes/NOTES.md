@@ -368,6 +368,26 @@ hardware pass, as in the AR port.
   stock scoreboard screen; handover marker = "Home ... Visitor" row or the
   "1st and" down line — the score row paints a beat later than row 11).
 
+## M8 results (2026-08-16) — desync recovery PASS + a debugger discovery
+
+- **jzIntv debugger `r N` counts INSTRUCTIONS, not cycles** (~4.58
+  cycles/instruction measured: `r 4000000` parked at cycle 46.4M).  The
+  cycles-based `RUN_SECS * 900000` factor inherited from the AR scripts
+  therefore overshoots ~4.6x — the rig survives it (verdict reads state at
+  whatever tick the run reached), but m4's console 2 blew past its dumps
+  and died on `timeout`, and its "fault at ~35s" constant `r 1E0BFC0`
+  parses as `r 1` (decimal parse stops at 'E') so the poke landed
+  pre-session.  run_m4.sh now uses ~200000 instructions/emulated second
+  and `r 7000000` for the 35 s pre-fault run.  (The pre-session poke still
+  produced a real desync — $017C, the Visitor score, is NOT re-zeroed by
+  game init — which is how the broken script half-passed.)
+- **M4 PASS**: fault `e 17C 5` on the guest mid-session; mismatch detected,
+  host pushed at a QUIESCENT PHASE after 1 tick (the FB_PHASE dead-ball
+  gate, not the cap), both re-baselined (hold=0, ~2410 ticks, DIAG zero),
+  post-recovery CRC pairs clean.
+- Fault cell moved from AR's $0165 (dance state on this cart) to $017C
+  (Visitor score: persistent, CRC-covered, visibly consequential).
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball
