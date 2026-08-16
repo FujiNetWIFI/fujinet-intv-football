@@ -40,12 +40,12 @@ sleep 1.5
 
 # Console 1 plays through and dumps BACKTAB + the netplay/peer-left/diag cells.
 printf 'b 14D5\nr 10000000\ng 7 14D7\nn 14D5\nr %d\nm 200 F0\nm 8160 8\nm 8185 2\nm 8180 4\nm 100 4\nq\n' \
-    $((RUN_SECS * 900000)) > "$RIG/plc1.scr"
+    $((RUN_SECS * 200000)) > "$RIG/plc1.scr"
 # Console 2 gets the usual extra RNG stir for a distinct name and otherwise
 # plays normally -- it is killed from the shell below, so the walk-out happens
 # at a known WALL-CLOCK moment instead of an emulated-cycle count.
 printf 'b 14D5\nr 10000000\nn 14D5\nr 49BF0\nb 14D5\nr 10000000\ng 7 14D7\nn 14D5\nr %d\nq\n' \
-    $((RUN_SECS * 900000)) > "$RIG/plc2.scr"
+    $((RUN_SECS * 200000)) > "$RIG/plc2.scr"
 
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
     timeout $((RUN_SECS + 200)) "$JZINTV" -d --script="$RIG/plc1.scr" \

@@ -388,6 +388,15 @@ hardware pass, as in the AR port.
 - Fault cell moved from AR's $0165 (dance state on this cart) to $017C
   (Visitor score: persistent, CRC-covered, visibly consequential).
 
+## M9 results (2026-08-16) — peer-left PASS, both branches
+
+- Clean walk-out (server PEER_LEFT): "OPPONENT LEFT" + opponent name +
+  PRESS RESET + DIAG row, PEER_WHY=1.
+- Socket timeout (emulator killed, fujinet-pc holds the socket):
+  "CONNECTION LOST", PEER_WHY=0.
+- DIAG all zero both ways; the park-forever + DANCE_SETTLE (watching the
+  $55 game-ISR page) held — no repaint over the terminal screen.
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball
