@@ -9,7 +9,7 @@
 ;   STALL_N       freeze the sim for N frames out of every 64 (0 = never)
         INCLUDE "src/exec_equ.asm"
         INCLUDE "src/ram.asm"
-        INCLUDE "build/autorace_patched.asm"
+        INCLUDE "build/football_patched.asm"
         INCLUDE "src/hook.asm"
         INCLUDE "src/vdispatch.asm"
         INCLUDE "src/netcode/mailbox.asm"

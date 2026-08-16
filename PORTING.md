@@ -1,12 +1,15 @@
 # Porting FujiNet netplay to another EXEC game
 
-This repo is a working two-player netplay port of Mattel Baseball (1978),
-validated on real PiRTO II hardware. Almost none of it is about Baseball.
-This document separates the part that transfers — the engine, the server, the
-test rig, and the expensive lessons — from the part that has to be re-derived
-for each new cart, and gives the procedure for re-deriving it.
+Written in the Baseball port repo (a working two-player netplay port of
+Mattel Baseball (1978), validated on real PiRTO II hardware); updated in this
+repo with the Auto Racing port's lessons (§2.1 caveat, §3 false-positive
+classes, §4 vdispatch/text-variant entries, §5.5 refinements, §5.6,
+§7.8-§7.11). Almost none of it is about any one cart. This document separates
+the part that transfers — the engine, the server, the test rig, and the
+expensive lessons — from the part that has to be re-derived for each new
+cart, and gives the procedure for re-deriving it.
 
-Target audience: you, six months from now, starting Football.
+Target audience: you, six months from now, starting the fourth port.
 
 Everything here is verified against real ROMs and live runs. Where a number
 came from a measurement, the measurement is shown, because two of the worst
@@ -68,6 +71,11 @@ SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
 ```
 
 (`b 14D5` + `g 7 14D7` is the EXEC title-skip recipe; it is generic.)
+
+Caveat from the Auto Racing port: the pass can be **4 real frames during some
+phases** — if the game runs a VBLANK display state machine that replaces the
+EXEC ISR for ~1 frame per tick, `$0102` does not count those frames. Wall
+tick rate is then phase-dependent; sim semantics (per-pass) are unaffected.
 
 ### 2.2 Tick rate = 20 Hz ÷ timer interval
 
@@ -170,6 +178,26 @@ Reading that table, before writing a line of code:
   read input through a computed pointer the linear scan cannot see (or only
   through the `$035D` dispatch). Chase this in `dis1600` before assuming
   there is nothing to patch — the shadow-input patch is load-bearing.
+  (Auto Racing's answer, found at its M2: **dispatch-only** — the port reads
+  feed only the EXEC scan's edge cells, and input enters game state
+  exclusively through the `$035D` handlers. That finding changed the spike
+  design, not the wire format. Run the dis1600 confirmation pass *before*
+  committing to a wire format or a spike design.)
+
+### Known recon false-positive classes (seen across three carts)
+
+Recon is a linear word scan; these three patterns have each produced a bogus
+candidate that hand-decoding the raw words exposed:
+
+1. **Misaligned instruction decode** — a "STIC write" that is really the
+   middle of two consecutive 3-word `JSR R5` instructions (Football `$5041`).
+   Decode the surrounding words as instructions from a known-good boundary.
+2. **`CMPI` against a constant that happens to be a hot cell address** — a
+   loop-bound compare of a pointer against `#$035D`/`#$035F`, not a read of
+   the cell (Auto Racing `$520F`, Football `$5A12`).
+3. **The operand you patch is the `MVI`, not the `MVO`** — at a raw-port
+   latch site the *read* operand (`$01FE`/`$01FF`) is the patch target; the
+   `MVO` destinations (`$0123`/`$0124`) stay (both AR and Football).
 
 ---
 
@@ -183,7 +211,13 @@ Reading that table, before writing a line of code:
 - `src/netcode/lockstep.asm` — delay lockstep, gate, stall, virtual dispatch
 - `src/netcode/resync.asm` — CRC exchange, state image, recovery
 - `src/netcode/hud.asm` — the live diagnostic row (§6)
-- `src/ui/text.asm` — BACKTAB text
+- `src/vdispatch.asm` — the shared virtual-dispatch engine (factored out of
+  lockstep.asm by the Auto Racing port so the local lag/det/replay spikes and
+  the netcode replay events through one code path; includes the disc-settle
+  `R0 = -1` event the scan's held path emits)
+- `src/ui/text.asm` — BACKTAB text. **Two variants exist**, keyed to header
+  `$500E`: the Baseball original for colour-stack carts, the Auto Racing
+  rewrite for foreground/background carts. Copy the one matching your cart.
 - `server/bbnet_server.py` — relay + matchmaking; game-agnostic
 - `tools/dump_rom.py`, `tools/check_patch.py`, `tools/recon.py`
 - `test/` — the whole rig (two fujinet-pc instances + server + two jzIntv)
@@ -194,7 +228,7 @@ Reading that table, before writing a line of code:
 |-------|------------------------------|----------------|
 | patch map | `tools/patches.py` | `recon.py`, confirmed in `dis1600` |
 | game symbols (`BB_*`) | `src/exec_equ.asm` | disassembly |
-| master dispatcher body | `src/hook.asm` `MASTER_TICK` | one call per game timer entry, at its interval |
+| master dispatcher body | `src/hook.asm` `MASTER_TICK` | one call per game timer entry, at its interval, **in the original table's order** (the EXEC walks entries in order; a slow entry listed before the fast one must fire first on the passes where both fire) |
 | CRC range (non-volatile game scratch) | `LS_CKSUM`, `$015D-$01EF` | §5.4 |
 | resync image layout | `resync.asm` `IMG_*` | §5.4 |
 | quiescent point for resync | `BB_TBL_PREPITCH` (`$5335`) | §7.6 |
@@ -202,7 +236,7 @@ Reading that table, before writing a line of code:
 
 ---
 
-## 5. The five things that make it deterministic
+## 5. The six things that make it deterministic
 
 Get these wrong and the two consoles drift; everything else is plumbing.
 
@@ -251,6 +285,28 @@ any transport work. Note the coverage hole this leaves — scripted fuzz never
 reaches deep game states (in Baseball it never triggers a pitch), so a
 record-and-replay pass over real gameplay is what actually exercises the
 game's phase machine.
+
+Two refinements from the Auto Racing port:
+
+- **Write a deterministic demo script** (`SCRIPT_TBL` in `vdispatch.asm`)
+  that drives the game from boot into real play — menus, confirms, the first
+  seconds of the game proper — and run it before handing over to fuzz. It
+  closes most of the coverage hole cheaply, and both rig consoles can share
+  it (host plays the left columns, guest the right).
+- **Mask automated fuzz to `$3F`** (disc space only). Unmasked keypad fuzz
+  can trigger game-restart/menu paths whose determinism you have not proven
+  yet (that is how AR found its sound-state leak); keypad coverage belongs to
+  the script, where it is reproducible.
+
+### 5.6 Audit helper registers against everything live in the caller
+
+A helper that clobbers a register the caller still needs can corrupt state
+**symmetrically on both consoles**, so CRCs agree and nothing looks wrong for
+hundreds of ticks (AR: `SCR_STEP` clobbered R2 = the tick tag inside
+`LS_PASS`; every post-script input went out tagged "tick 0" and was silently
+dropped as stale). When inserting any call into `LS_PASS`/`MASTER_TICK`,
+enumerate what is live in R0-R5 at that point and check the callee against
+the list.
 
 ---
 
@@ -379,7 +435,42 @@ round, which is when it genuinely matters.
 `STATUS` before `READ` is not optional: FujiNet's TCP read returns
 `SOCKET_TIMEOUT` and an error if you ask for more bytes than are available.
 
-### 7.8 Known, not yet acted on
+### 7.8 The EXEC sound gate can leak real-frame state into the sim
+
+The one determinism leak Auto Racing shipped with: game phase transitions
+that call EXEC sound entries behind the SFX-busy gate (`$0149`, checked by
+the X_SFX_OK idiom — return via R4 = skip vs R5 = play) can consume
+**real-frame-timed** sound state at a decision point. Stall-shift the sound
+state and the two consoles take different branches with identical sim state
+and inputs. Audit every game call into `$1A61`-class sound entries at recon
+time: if any *logic* depends on the outcome, wrap the site so the gate is
+deterministic. The CRC + resync net catches what slips through, at the cost
+of a sub-second freeze.
+
+### 7.9 Terminal screens must park forever
+
+Baseball's peer-left path returned to the EXEC pass; on Auto Racing the scan
+rewrote `$0102` and the pass machinery repainted status rows over the
+peer-left screen every frame. Park the mainline in a tight loop
+(`B @@self`) once a terminal screen is up — nothing after it needs the pass.
+
+### 7.10 A game ISR dance can outlive your moment
+
+Games that install their own ISR bodies (`$0100/$0101`) for multi-frame STIC
+updates can be mid-dance when you take over the display (peer-left, session
+screens). Wait out the dance bounded, then force-restore the EXEC default
+ISR (`$1126`) — otherwise a stranded game ISR repaints over your screen
+forever (AR's `DANCE_SETTLE`). Check at recon whether the cart writes
+`$0100/$0101` at all; if it never does, none of this applies.
+
+### 7.11 Kill stale rig processes first
+
+A stale fujinet-pc instance silently holds its BOIP port and every later
+emulator launch against it becomes a no-op that *looks* like a netcode hang.
+Every rig script `pkill`s its own instances before starting. Keep it that
+way in new test scripts.
+
+### 7.12 Known, not yet acted on
 
 - **Nagle is on for `N:TCP` sockets.** `NetworkProtocolTCP::open_client_connection`
   never calls `setNoDelay(true)` (only the modem devices do), so a
@@ -444,8 +535,15 @@ Each step has a gate that must pass before the next one is worth starting.
 
 ## 10. Where the detail lives
 
-- `spikes/NOTES.md` — the EXEC reverse-engineering notes: main loop, timer
-  table internals, controller decode, raw port encoding, per-spike results.
-  Read this before touching timing or input code.
+- `spikes/NOTES.md` (this repo) — Football-specific recon, decodes, risks.
+- `~/Workspace/intv-baseball-experiment/spikes/NOTES.md` — the EXEC
+  reverse-engineering notes: main loop, timer table internals, controller
+  decode, raw port encoding, decoded input byte format, jzIntv debugger
+  facts. Read this before touching timing or input code.
+- `~/Workspace/fujinet-intv-auto-racing/spikes/NOTES.md` — second-port
+  deltas: the headless input-injection recipe (force all four read sites per
+  pass in stop order; never add extra breakpoints to an injection run),
+  event-semantics corrections (keypad digits 1-based into handlers, ENTER =
+  raw `$28` → event `$B`), the VBLANK-dance analysis, the leak forensics.
 - `src/netcode/hud.asm` — how to read the HUD.
 - `README.md` — build targets, interactive runs, current status.

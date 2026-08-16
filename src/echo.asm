@@ -160,5 +160,5 @@ ECHO_PARK:
         B       ECHO_PARK
 
 ECHO_SPEC:
-        STRING  "N:TCP://localhost:9102/"
+        STRING  "N:TCP://localhost:9103/"
 ECHO_SPEC_LEN   EQU     23

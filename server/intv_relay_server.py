@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Intellivision netplay matchmaking + relay server (Auto Racing instance).
+"""Intellivision netplay matchmaking + relay server (NFL Football instance).
 
 Single-file, stdlib-only, selectors-based non-blocking TCP (the FujiRealm
 hybrid_server.py pattern).  Clients are Intellivision consoles connecting
@@ -375,7 +375,7 @@ class LobbyPublisher:
     threads or overlapping requests."""
 
     def __init__(self, base_url, serverurl, client_url, appkey, region="us",
-                 game_name="Auto Racing", server_name="Auto Racing Netplay"):
+                 game_name="NFL Football", server_name="NFL Football Netplay"):
         self.base_url = base_url.rstrip("/")
         self.payload = {
             "game": game_name,
@@ -441,10 +441,10 @@ class LobbyPublisher:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=9101)
-    ap.add_argument("--game-name", default="Auto Racing",
+    ap.add_argument("--port", type=int, default=9102)
+    ap.add_argument("--game-name", default="NFL Football",
                     help="game name for the FujiNet Lobby registration")
-    ap.add_argument("--server-name", default="Auto Racing Netplay",
+    ap.add_argument("--server-name", default="NFL Football Netplay",
                     help="server name for the FujiNet Lobby registration")
     ap.add_argument("--delay", type=int, default=DEFAULT_DELAY,
                     help="lockstep input delay in game ticks")
@@ -452,7 +452,7 @@ def main():
     ap.add_argument("--lobby-enabled", action="store_true",
                     help="register with the FujiNet Lobby")
     ap.add_argument("--lobby-url", default="https://lobby.fujinet.online")
-    ap.add_argument("--lobby-serverurl", default="TCP://localhost:9101/",
+    ap.add_argument("--lobby-serverurl", default="TCP://localhost:9102/",
                     help="public endpoint clients should use")
     ap.add_argument("--lobby-client-url", default="",
                     help="TNFS path of the client ROM for Lobby boot")
