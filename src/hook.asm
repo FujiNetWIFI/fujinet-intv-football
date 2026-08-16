@@ -5,11 +5,12 @@
 ; re-arms "the first table entry" through the header pointer with per-note
 ; durations (countdown slot $0125, EXEC-managed real-frame timing) -- it is
 ; presentation-only and deliberately NOT drawn into sim-tick space.
-; Entry 1 is our master dispatcher, every pass.  Auto Racing's original
-; table had TWO game entries -- $511E every pass (the 20 Hz tick) and $51B7
-; every 15 (the race clock) -- so the dispatcher fires the fast tick each
-; pass and steps the virtualized /15 countdown (SLOW_CNT, sim state) so a
-; lockstep stall freezes both cadences atomically.
+; Entry 1 is our master dispatcher, every pass.  Football's original table
+; had TWO game entries -- $56EF every 15 (the game clock) listed FIRST,
+; then $5034 every pass (the 20 Hz tick) -- so the dispatcher steps the
+; virtualized /15 countdown (SLOW_CNT, sim state) BEFORE firing the fast
+; tick, preserving the EXEC's table walk order on passes where both fire,
+; and a lockstep stall freezes both cadences atomically.
 
         ORG     $6000
 
@@ -28,7 +29,7 @@ NEW_TIMER_TBL:
 ; ---------------------------------------------------------------------------
 NET_START:
         PSHR    R5                      ; EXEC main-loop return -- JSRs below
-                                        ; clobber R5, and AR_START returns
+                                        ; clobber R5, and FB_START returns
                                         ; through it into the main loop
         MVII    #NET_RAM, R4
         MVII    #NET_RAM_SIZE, R1
@@ -39,7 +40,7 @@ NET_START:
         MVII    #SPIKE_DELAY, R0        ; virt-dispatch delay depth (spike knob)
         MVO     R0,     DELAY_EN
         MVII    #15,    R0              ; slow-tick countdown, as the EXEC
-        MVO     R0,     SLOW_CNT        ;  would arm entry 2's interval
+        MVO     R0,     SLOW_CNT        ;  would arm entry 1's interval
         ; canonical game RNG seed -- in netplay this comes from START;
         ; fixed for now so identical runs are identical by construction
         MVII    #$34,   R0
@@ -64,7 +65,7 @@ NET_START:
         JSR     R5,     SES_MAIN        ; login/lobby; arms NET_ACTIVE or not
     ENDI
         PULR    R5
-        J       AR_START
+        J       FB_START
 
 ; NET_NULL_TBL: handed to the EXEC scan (via $035D) while dispatch is
 ; virtualized so its event dispatch resolves null pointers and never calls
@@ -76,7 +77,7 @@ NET_NULL_TBL:
 
 ; ---------------------------------------------------------------------------
 ; MASTER_TICK -- timer entry 1, dispatched by the EXEC every main-loop pass.
-; Every pass is a game tick (Auto Racing's fast entry had interval 1).
+; Every pass is a game tick (Football's fast entry had interval 1).
 ; May clobber R0-R3 (the EXEC dispatch preserves R4/R5 and re-reads its walk
 ; state per entry).  Returns via the R5 the dispatcher handed us.
 ; ---------------------------------------------------------------------------
@@ -118,17 +119,20 @@ MASTER_TICK:
         PULR    R7
 @@mt_local:
     ENDI
-        JSR     R5,     UPDATE_SHADOW   ; raw-latch pass-through
+        JSR     R5,     UPDATE_SHADOW   ; raw + decoded pass-through
     IF SPIKE_RECORD <> 0
         JSR     R5,     REC_CAPTURE     ; log the live cells for this tick
     ENDI
     IF SPIKE_VIRT <> 0
         ; Virtualized local dispatch: capture (or script/replay) both pads'
-        ; cells for tick T+d, run the tick with the game's real handler
-        ; table installed, replay tick T's events through it, then null
-        ; $035D so the real scan can't reach game code.  With d = 0 this
-        ; must feel stock (gate: make run-virt).
+        ; cells for tick T+d, feed the polled shadow pair from the rings at
+        ; tick T (Football POLLS as well as dispatches -- the hybrid model),
+        ; run the tick with the game's real handler table installed, replay
+        ; tick T's events through it, then null $035D so the real scan
+        ; can't reach game code.  With d = 0 this must feel stock (gate:
+        ; make run-virt).
         JSR     R5,     VIRT_CAPTURE
+        JSR     R5,     SHADOW_FROM_RINGS
         JSR     R5,     LS_TBL_ADOPT
         MVI     GAME_TBL_HI, R1
         SWAP    R1,     1
@@ -137,8 +141,8 @@ MASTER_TICK:
         MVO     R1,     $35D
 @@mt_no_tbl:
     ENDI
-        JSR     R5,     AR_TICK_FAST
-        JSR     R5,     AR_SLOW_STEP
+        JSR     R5,     FB_SLOW_STEP    ; slow entry is FIRST in the table
+        JSR     R5,     FB_TICK_FAST
     IF SPIKE_VIRT <> 0
         CLRR    R0
         MVO     R0,     VD_SIDE
@@ -166,12 +170,14 @@ MASTER_TICK:
 @@mt_out:
         PULR    R7
 
-; AR_SLOW_STEP -- the virtualized slow game entry (original table entry 2:
-; $51B7 every 15 passes).  Fast-then-slow matches the EXEC's table walk
-; order on the passes where both fire.  Shared by the local path and the
-; lockstep path; because it only steps inside the dispatch, the countdown
-; freezes coherently during stalls.
-AR_SLOW_STEP:
+; FB_SLOW_STEP -- the virtualized slow game entry (original table entry 1:
+; $56EF, the game clock, every 15 passes).  Football's table lists it
+; BEFORE the fast entry, so the dispatcher calls slow-then-fast to match
+; the EXEC's walk order on the passes where both fire (the opposite of
+; Auto Racing).  Shared by the local path and the lockstep path; because
+; it only steps inside the dispatch, the countdown freezes coherently
+; during stalls.
+FB_SLOW_STEP:
         PSHR    R5
         MVI     SLOW_CNT, R0
         DECR    R0
@@ -179,12 +185,12 @@ AR_SLOW_STEP:
         BNEQ    @@no_slow
         MVII    #15,    R0
         MVO     R0,     SLOW_CNT
-        JSR     R5,     AR_TICK_SLOW
+        JSR     R5,     FB_TICK_SLOW
 @@no_slow:
         PULR    R7
 
 ; ---------------------------------------------------------------------------
-; NET_RAND1 / NET_RAND2 -- canonical-RNG wrappers for the game's own four
+; NET_RAND1 / NET_RAND2 -- canonical-RNG wrappers for the game's own three
 ; RAND call sites.  The EXEC sound engine advances the shared LFSR at $035E
 ; from ISR context every frame while noise SFX play, so game logic must not
 ; read $035E directly: swap the canonical (sim-space) value in, call the
@@ -226,16 +232,46 @@ NET_RAND2:
         MOVR    R5,     R7
 
 ; ---------------------------------------------------------------------------
-; UPDATE_SHADOW -- feed the game's raw-port latch cells, pass-through from
-; the live ports in every mode.  The latch (top of $511E) stores their
-; complement into the EXEC scan's edge cells $0123/$0124; keeping it live
-; makes the real scan behave exactly as stock, which is what gives the
-; captured $011F stream its stock fresh/held flavours.  Input never reaches
-; game state this way -- that happens only through the $035D dispatch.
+; UPDATE_SHADOW -- feed both shadow surfaces (the hybrid model):
+;  - raw-port latch cells, pass-through from the live ports in every mode.
+;    The latch (L_5722, inside the fast tick) stores their complement into
+;    the EXEC scan's edge cells $0123/$0124; keeping it live makes the real
+;    scan behave exactly as stock, which is what gives the captured $011F
+;    stream its stock fresh/held flavours.
+;  - the polled decoded pair, pass-through from the live EXEC cells.  The
+;    game's computed-index read at $5636 consumes these; a tick-top copy
+;    hands it exactly the previous pass's scan output, which is what the
+;    stock read saw (dispatch runs before the scan in each pass).  Virt and
+;    lockstep modes overwrite the pair afterwards (SHADOW_FROM_RINGS / the
+;    LS_PASS role feed).
 ; ---------------------------------------------------------------------------
 UPDATE_SHADOW:
         MVI     $1FE,   R0
         MVO     R0,     SHADOW_RAW_R
         MVI     $1FF,   R0
         MVO     R0,     SHADOW_RAW_L
+        MVI     EXEC_IN_L, R0
+        MVO     R0,     SHADOW_CTRL
+        MVI     EXEC_IN_R, R0
+        MVO     R0,     SHADOW_CTRL_R
+        MOVR    R5,     R7
+
+; ---------------------------------------------------------------------------
+; SHADOW_FROM_RINGS -- feed the polled shadow pair from the dispatch rings
+; at the CURRENT tick (local virt modes: side 0 = LOC = left).  This is
+; what makes the delayed/scripted/replayed polled stream agree with the
+; dispatched event stream -- both read the same ring slot.  With d = 0 the
+; slot holds this tick's live capture, so hook and virt stay bit-identical.
+; Clobbers R0/R1/R3.
+; ---------------------------------------------------------------------------
+SHADOW_FROM_RINGS:
+        MVI     TICK_LO, R1
+        MOVR    R1,     R3
+        ADDI    #LOC_RING, R3
+        MVI@    R3,     R0
+        MVO     R0,     SHADOW_CTRL
+        MOVR    R1,     R3
+        ADDI    #RMT_RING, R3
+        MVI@    R3,     R0
+        MVO     R0,     SHADOW_CTRL_R
         MOVR    R5,     R7

@@ -1,11 +1,14 @@
 ; Virtual input-event dispatch engine.
 ;
-; Auto Racing's input reaches game state exclusively through the EXEC scan's
-; $035D handler dispatch (spikes/NOTES.md, M2): there is no polled cell to
-; shadow.  Interception therefore means nulling $035D during the real scan
-; and replaying both pads' events in sim space through the live handlers.
-; That machinery lived inside Baseball's lockstep.asm; here it is shared by
-; the local spikes (lag/det/replay -- SPIKE_VIRT builds, driven from
+; Football is the Baseball hybrid: input reaches game state through the
+; EXEC scan's $035D handler dispatch AND through one polled computed-index
+; read of the decoded cells (patched to the SHADOW_CTRL pair).  Dispatch
+; interception means nulling $035D during the real scan and replaying both
+; pads' events in sim space through the live handlers; polled interception
+; means feeding the shadow pair from the same rings (SHADOW_FROM_RINGS in
+; hook.asm / the LS_PASS role feed), so both surfaces always agree.  This
+; machinery lived inside Baseball's lockstep.asm; here it is shared by the
+; local spikes (lag/det/replay -- SPIKE_VIRT builds, driven from
 ; MASTER_TICK) and by the lockstep engine (driven from LS_PASS), so it gets
 ; its own file.  LS_* names are kept verbatim from the Baseball engine.
 
@@ -229,21 +232,20 @@ SCRIPT_TBL:
     ENDI
 
 ; ---------------------------------------------------------------------------
-; DANCE_SETTLE -- the game's VBLANK display dance tail outlives the tick by
-; a frame or two: its final ISR steps paint the last track cells and restore
-; the EXEC vector THEMSELVES ($5F2F), and the tick's mainline does not wait
-; for them.  Anything about to repaint BACKTAB (the peer-left screen) must
-; wait the tail out or race its last writes.  Bounded spin, ~4 frames.
+; DANCE_SETTLE -- the game's VBLANK display dance installs its own ISR body
+; (FB_ISR_BODY = $5524; the mainline normally spins on the mailbox $0169
+; until the body restores the EXEC vector from $0163/$0164).  Anything about
+; to take over the display (the peer-left screen, the session screens) must
+; wait the dance out or race its BACKTAB/hscroll writes.  Bounded spin,
+; ~4 frames, watching the vector high byte for the game body's page ($55).
 ; ---------------------------------------------------------------------------
 DANCE_SETTLE:
         PSHR    R5
         MVII    #6000,  R1
 @@ds_l: MVI     $101,   R0
-        CMPI    #$5E,   R0
-        BEQ     @@ds_w
-        CMPI    #$5F,   R0
+        CMPI    #FB_ISR_BODY SHR 8, R0
         BNEQ    @@ds_done
-@@ds_w: DECR    R1
+        DECR    R1
         BNEQ    @@ds_l
         ; Tail never finished: a dance that started before the previous
         ; tail restored the vector SAVES a game body as "previous", and a
@@ -292,8 +294,9 @@ REC_CAPTURE:
 ;     change, else 0 (the EXEC re-fires held keypad every scan)
 ;   $011F-cell fresh event (changed, bit 6 clear): value >= $80 -> keypad
 ;     handler [2] with R0 = k; disc (0-15) -> handler [0] with R0 = dir
-; For Auto Racing: slot 0 = $5683, slot 2 = $5074 (course/car select uses
-; keypad digits through it), slots 4/6/8 = $5103.
+; For Football (table base $55D9, installed with a caller offset via the
+; JSR-R4 idiom at $55D6): +2 = $5752, +4 = $588A, +6/+8 = $5874; the EXEC
+; null table $1906 is installed between plays and at end-of-quarter.
 ; Handlers are entered like the EXEC does it: R1 = controller index (0 =
 ; left, 1 = right), R0 = event value, return via R5.
 ; Fidelity note: an imperfect replication differs IDENTICALLY on both
@@ -396,10 +399,11 @@ LS_VDISPATCH:
 @@vd_settle:
         ; ---- disc settle: the scan's held path ($15AC) fires slot 0 with
         ; R0 = -1 exactly once, on the pass after a disc event (the cell
-        ; changes dir -> dir|$40).  Auto Racing's disc handler NEEDS it: a
-        ; negative event marks the disc released (flag 2 at $0177+p*16);
-        ; without it steering latches.  Keypad release marks $C0|k (bit 7
-        ; set) and dispatches nothing -- excluded here.
+        ; changes dir -> dir|$40).  Auto Racing's disc handler needed it
+        ; (steering latched without it); kept for Football -- it replicates
+        ; the stock scan, and an unused event through a null slot is free.
+        ; Keypad release marks $C0|k (bit 7 set) and dispatches nothing --
+        ; excluded here.
         MVI     VD_CUR, R0
         ANDI    #$80,   R0
         BNEQ    @@vd_done

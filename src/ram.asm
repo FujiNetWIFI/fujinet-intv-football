@@ -135,10 +135,20 @@ LOC_RING        EQU     $8500   ; delayed local input byte per tick (mod 256)
 
 TRACE_RING      EQU     $9000   ; 256 x 2-byte per-tick state checksums
 
-; The game's patched raw-port latch reads ($5120/$5125) land here.  The
+; The game's patched polled-input read ($5637) lands here.  Football reads
+; [$011F + (G_016B XOR k)] -- a computed index selecting EITHER controller
+; -- so this pair must be consecutive cells in the EXEC's left,right order.
+; Local modes feed it pass-through from the live decoded cells (stock
+; behaviour: the game sees the previous pass's scan output); the lag/det
+; spikes feed it from the delayed rings; LS_PASS feeds it by role from the
+; lockstep rings.
+SHADOW_CTRL     EQU     $8140   ; virtual $011F (left decoded input)
+SHADOW_CTRL_R   EQU     $8141   ; virtual $0120 (right decoded input)
+
+; The game's patched raw-port latch reads ($5729/$572E) land here.  The
 ; values feed only the EXEC scan's edge cells $0123/$0124 (never read back
 ; by cart code), so these are hygiene, kept pass-through from the live
 ; ports in every mode -- the scan then behaves exactly as stock, which is
 ; what gives the captured $011F stream its stock fresh/held flavours.
-SHADOW_RAW_L    EQU     $8140   ; virtual $01FF (left port, active low)
-SHADOW_RAW_R    EQU     $8141   ; virtual $01FE (right port)
+SHADOW_RAW_L    EQU     $8142   ; virtual $01FF (left port, active low)
+SHADOW_RAW_R    EQU     $8143   ; virtual $01FE (right port)

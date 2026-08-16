@@ -1,8 +1,9 @@
 ; Common assembly core: EXEC equates, RAM map, patched original ROM, hook.
 ; Build flags each top-level main_*.asm must define:
 ;   SPIKE_VIRT    1 = virtualize the $035D dispatch locally (null the real
-;                 scan's table, replay ring events through live handlers) --
-;                 Auto Racing's only input surface, so lag/det/replay need it
+;                 scan's table, replay ring events through live handlers,
+;                 feed the polled shadow pair from the same rings) --
+;                 Football polls AND dispatches, so lag/det/replay need it
 ;   SPIKE_DELAY   virt-dispatch delay depth in game ticks (0 = same tick)
 ;   SPIKE_SCRIPT  1 = feed deterministic fuzz inputs instead of controllers
 ;   SPIKE_TRACE   1 = per-tick state checksum ring + park at TRACE_STOP
