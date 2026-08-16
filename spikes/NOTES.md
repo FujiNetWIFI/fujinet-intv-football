@@ -300,6 +300,54 @@ phase-gated off there (mask $D0 AND 3 = 0) — in latch-live phases
 an edge.  Consequence: the "L-x" probe results above were physically the
 RIGHT pad; with G_016B=0 the right pad owns the $0172 pick path.
 
+## M5 findings (2026-08-16) — the game flow, mapped, and determinism PASS
+
+**Injection-harness root cause (supersedes the M4 scan-order note):** the
+per-pass stop cycle with breakpoints on $5034/$1527/$152E is
+`1527 -> 152E -> 5034` (the scan runs after the tick, so scan stops of pass
+N precede the $5034 stop of pass N+1), and the FIRST stop after arming is
+$1527.  The harness aligns with two throwaway `r`s; before that fix every
+"left" force landed on the right port and every "right" force fell into a
+$5034-context register (black hole).  The scan itself reads LEFT ($011F,
+port read $1525) then RIGHT ($0120, $152C), and handler controller index is
+left=0 / right=1, standard EXEC numbering.
+
+**The play system (all confirmed live with the aligned harness):**
+
+- Boot: phase 1 (intro) -> phase 2 (play select) automatically.  At boot
+  the OFFENSE = RIGHT pad (G_016B = 0; the pick handler's side test is
+  `R1 XOR G_016B != 0` -> right).  G_016B XOR-swaps on possession change.
+- Phase 2 (play select, clock held): offense picks the play with keys
+  7/8/9 -> $0172 = 1/2/3 (validator pair base 6, count 3 at $57AA table),
+  then for plays 1/3 a variation digit -> $0173, then Enter (event $B,
+  accepted once all pick cells are filled) -> $0171 bit0 + huts armed
+  ($0190=6).  Play 2 needs no variation digit (Enter valid immediately).
+  Defense picks a formation, keys 1-3 -> $0176 (+$0177 on Enter) -> $0171
+  bit1 -> **phase 3** (teams line up).
+- Phase 3 -> 4 automatic (huts count down $0190 6->0, ~30 ticks).
+- Phase 4: offense ACTION button (fresh press through the dispatch, class
+  cell 1) = **the SNAP** -> **phase 5: play LIVE, clock RUNS**
+  (G_0181 bit0 clears), play counter $016C++.
+- Phase 5: offense disc steers the runner (decoded 0-15; WEST = toward the
+  opponent's goal from the boot possession).  Tackle -> phase 1 -> 2,
+  next down painted in row 11 ("2nd and 22 on 8" observed after running
+  east into the own end zone direction).
+- **Quiescent/dead-ball signal: G_0181 bit0 (clock hold)** — set in phases
+  0/1/2/3/4, clear only during live play.  This is the resync gate (M8):
+  simpler and stronger than a phase-value list.
+
+**Determinism gate: PASS.** `make det` — run A clean vs run B with 9-frame
+stalls every 64 ticks, shared SCRIPT_TBL (one complete play: picks, enters,
+snap, 100-tick run west) then $3F-masked disc fuzz; parked both at tick
+1024: all 256 compared per-tick checksums identical, settled object table +
+scratch identical.  At park: $016C=1 (play completed), clock 14:04 (the
+fuzz steered the still-live runner for ~40 s of game time before a tackle
+ended the play) — deep-state coverage confirmed, incl. slow-tick freezes
+and dance/tick-boundary coherence under stalls.
+
+Record-and-replay (run-rec) needs live interactive play — deferred to the
+hardware pass, as in the AR port.
+
 ## Decisions taken at plan time
 
 - Server: `server/intv_relay_server.py`, default port **9102** (Baseball

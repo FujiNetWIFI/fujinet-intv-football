@@ -76,9 +76,9 @@ VIRT_CAPTURE:
         MOVR    R5,     R7
     ENDI
     IF (SPIKE_REPLAY = 0) AND (SPIKE_SCRIPT <> 0)
-        ; Scripted demo first: complete the menus (fuzz alone parks in car
-        ; select forever -- the Baseball never-pitched coverage hole), drive
-        ; the race, then hand over to the fuzz.
+        ; Scripted demo first: run a complete play (fuzz alone parks in
+        ; play select forever -- the Baseball never-pitched coverage hole),
+        ; then hand over to the fuzz.
         PSHR    R1
         JSR     R5,     SCR_STEP        ; R2 = row addr, 0 when done
         PULR    R1
@@ -120,10 +120,9 @@ VIRT_CAPTURE:
         SWAP    R0,     1
         MVO     R0,     SLF_HI
 @@vf_hold:
-        ; dec values masked to $3F: disc-space chaos only.  Unmasked fuzz
-        ; hits keypad '1' in phase 3 = race restart, whose music re-arm
-        ; reads real-frame sound state -- the one stall leak this cart has
-        ; (spikes/NOTES.md, M7).  Menus are covered by the script above.
+        ; dec values masked to $3F: disc-space chaos only (PORTING.md
+        ; §5.5).  Keypad/menu paths are covered by the deterministic
+        ; script above, where they are reproducible.
         MOVR    R1,     R3
         ADDI    #LOC_RING, R3
         MVI     SLF_LO, R0
@@ -202,32 +201,40 @@ SCR_STEP:
         CLRR    R2
         MOVR    R5,     R7
 
-; Demo script: course 1, cars 1/2, both enters, then gas + steering pulses.
-; Digits are 1-based on the wire (the handler 0-indexes); enter = $B.
-; Rows are real cell sequences as the scan produces them: keypad release
-; marks $C0|k, disc settle = bit 6.
+; Demo script: one complete play from boot (mapped empirically, spikes/
+; NOTES.md M5): offense = RIGHT pad at boot (G_016B = 0).  Play select
+; (phase 2): offense keys 7/8/9 = play 1-3 -> $0172, then a variation
+; digit -> $0173, then Enter = ready; defense picks a formation (1-3) ->
+; $0176 + Enter -> phase 3 (line up) -> auto phase 4 (huts) -> offense
+; ACTION button = snap -> phase 5, clock runs -> offense disc steers the
+; runner (west = toward the opponent's goal) -> tackle -> phases 1/0 ->
+; phase 2, next down.  Digits are 1-based on the wire; enter = $B.
+; Rows are real cell sequences as the scan produces them: keypad held
+; marks $C0|k, disc held = code|$40.
 SCRIPT_TBL:
-        DECLE   10, $40, $40, 0, 0      ; settle
-        DECLE   3,  $81, $40, 0, 0      ; L digit 1: course 1
+        DECLE   100, $40, $40, 0, 0     ; boot -> phase 2 (play select)
+        DECLE   3,  $40, $87, 0, 0      ; R '7': play 1
+        DECLE   3,  $40, $C7, 0, 0
+        DECLE   3,  $40, $40, 0, 0
+        DECLE   3,  $40, $82, 0, 0      ; R '2': variation 2
+        DECLE   3,  $40, $C2, 0, 0
+        DECLE   3,  $40, $40, 0, 0
+        DECLE   3,  $40, $8B, 0, 0      ; R enter: offense ready
+        DECLE   3,  $40, $CB, 0, 0
+        DECLE   3,  $40, $40, 0, 0
+        DECLE   3,  $81, $40, 0, 0      ; L '1': defense formation 1
         DECLE   3,  $C1, $40, 0, 0
-        DECLE   3,  $8B, $40, 0, 0      ; L enter: accept course
+        DECLE   3,  $40, $40, 0, 0
+        DECLE   3,  $8B, $40, 0, 0      ; L enter -> phase 3 (line up)
         DECLE   3,  $CB, $40, 0, 0
-        DECLE   3,  $81, $40, 0, 0      ; L digit 1: car 1
-        DECLE   3,  $C1, $40, 0, 0
-        DECLE   3,  $C1, $82, 0, 0      ; R digit 2: car 2
-        DECLE   3,  $C1, $C2, 0, 0
-        DECLE   3,  $8B, $C2, 0, 0      ; L enter
-        DECLE   3,  $CB, $C2, 0, 0
-        DECLE   3,  $CB, $8B, 0, 0      ; R enter -> race init
-        DECLE   10, $CB, $CB, 0, 0
-        DECLE   40, $CB, $CB, 1, 1      ; race: both hold action class 1
-        DECLE   2,  $04, $CB, 1, 1      ; L disc pulse
-        DECLE   2,  $44, $CB, 1, 1      ; settle mark
-        DECLE   40, $44, $CB, 1, 1
-        DECLE   2,  $44, $0C, 1, 1      ; R disc pulse
-        DECLE   2,  $44, $4C, 1, 1
-        DECLE   60, $44, $4C, 1, 2      ; R shifts to action class 2
-        DECLE   40, $44, $4C, 2, 2      ; L shifts too
+        DECLE   40, $40, $40, 0, 0      ; phase 3 -> 4 (huts count down)
+        DECLE   4,  $40, $40, 0, 1      ; R action top: SNAP -> phase 5
+        DECLE   4,  $40, $40, 0, 0
+        DECLE   2,  $40, $0C, 0, 0      ; R disc west (fresh)
+        DECLE   2,  $40, $4C, 0, 0      ; held
+        DECLE   100, $40, $4C, 0, 0     ; run west, clock live
+        DECLE   2,  $40, $40, 0, 0      ; release
+        DECLE   60, $40, $40, 0, 0      ; tackle -> next play select
         DECLE   0                       ; done -> SLF fuzz from here
     ENDI
 
